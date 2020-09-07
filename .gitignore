@@ -28,4 +28,3 @@ credentials.py
 docker/env
 
 docs/_build/
-docker/envfile.env
