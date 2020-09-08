@@ -231,7 +231,7 @@ class GoogleSheet(SheetLoaderABC):
             await self.get_character()
         except (KeyError, SpreadsheetNotFound, APIError):
             raise ExternalImportError("Invalid character sheet. Make sure you've shared it with me at "
-                                      "`avrae-320@avrae-bot.iam.gserviceaccount.com`!")
+                                      "`hokieavrae@hokieavrae.iam.gserviceaccount.com`!")
         except Exception:
             raise
         return await asyncio.get_event_loop().run_in_executor(None, self._load_character, owner_id, args)
