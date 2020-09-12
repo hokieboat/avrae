@@ -42,7 +42,7 @@ def run_check(skill_key, caster, args, embed):
     # str/dex/con/int/wis/cha
     if any(args.last(s, type_=bool) for s in STAT_ABBREVIATIONS):
         base = next(s for s in STAT_ABBREVIATIONS if args.last(s, type_=bool))
-        mod = mod - caster.stats.get_mod(SKILL_MAP[skill_key]) + caster.stats.get_mod(base)
+        mod = mod + caster.stats.get_mod(base)
         skill_name = f"{verbose_stat(base)} ({skill_name})"
 
     # -title
