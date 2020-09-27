@@ -12,9 +12,8 @@ from math import ceil, floor
 
 import draconic
 
-import credentials
 from cogs5e.models.character import Character
-from cogs5e.models.dicecloud.client import dicecloud_client
+from cogs5e.models.dicecloud.client import DicecloudClient
 from cogs5e.models.dicecloud.errors import DicecloudException
 from cogs5e.models.errors import ExternalImportError
 from cogs5e.models.sheet.attack import Attack, AttackList
@@ -35,7 +34,7 @@ CLASS_RESOURCE_NAMES = {"expertiseDice": "Expertise Dice", "ki": "Ki", "rages": 
 CLASS_RESOURCE_RESETS = {"expertiseDice": 'short', "ki": 'short', "rages": 'long',
                          "sorceryPoints": 'long', "superiorityDice": 'short'}
 API_BASE = "https://dicecloud.com/character/"
-KEY = credentials.dicecloud_token if not config.TESTING else credentials.test_dicecloud_token
+KEY = config.DICECLOUD_API_KEY
 
 
 class DicecloudParser(SheetLoaderABC):
@@ -102,7 +101,7 @@ class DicecloudParser(SheetLoaderABC):
     async def get_character(self):
         """Saves the character JSON data to this object."""
         url = self.url
-        character = await dicecloud_client.get_character(url)
+        character = await DicecloudClient.getInstance().get_character(url)
         character['_id'] = url
         self.character_data = character
         return character
@@ -295,6 +294,7 @@ class DicecloudParser(SheetLoaderABC):
         return spellbook
 
     def is_live(self):
+        dicecloud_client = DicecloudClient.getInstance()
         if dicecloud_client.user_id in self.character_data['characters'][0]['writers'] \
                 or dicecloud_client.user_id == self.character_data['characters'][0]['owner']:
             return 'dicecloud'

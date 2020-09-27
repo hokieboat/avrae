@@ -13,10 +13,11 @@ from cogs5e.models import errors
 from cogs5e.models.embeds import EmbedWithAuthor, add_fields_from_long_text, set_maybe_long_desc
 from cogsmisc.stats import Stats
 from gamedata.compendium import compendium
-from gamedata.lookuputils import HOMEBREW_EMOJI, get_item_choices, get_monster_choices, get_spell_choices, \
+from gamedata.lookuputils import HOMEBREW_EMOJI, can_access, get_item_choices, get_monster_choices, get_spell_choices, \
     handle_source_footer
 from gamedata.shared import SourcedTrait
-from utils import checks
+from utils import checks, img
+from utils.argparser import argparse
 from utils.functions import get_positivity, search_and_select, trim_str
 
 LARGE_THRESHOLD = 200
@@ -235,31 +236,6 @@ class Lookup(commands.Cog):
         await (await self._get_destination(ctx)).send(embed=embed)
 
     # ==== monsters ====
-    @commands.command(aliases=['monimage'])
-    async def token(self, ctx, *, name=None):
-        """Shows a monster's image."""
-
-        if name is None:
-            token_cmd = self.bot.get_command('playertoken')
-            if token_cmd is None:
-                return await ctx.send("Error: SheetManager cog not loaded.")
-            return await ctx.invoke(token_cmd)
-
-        choices = await get_monster_choices(ctx, filter_by_license=False)
-        monster = await self._lookup_search3(ctx, {'monster': choices}, name)
-        await Stats.increase_stat(ctx, "monsters_looked_up_life")
-
-        url = monster.get_image_url()
-        embed = EmbedWithAuthor(ctx)
-        embed.title = monster.name
-        embed.description = f"{monster.size} monster."
-
-        if not url:
-            return await ctx.channel.send("This monster has no image.")
-
-        embed.set_image(url=url)
-        await ctx.send(embed=embed)
-
     @commands.command()
     async def monster(self, ctx, *, name: str):
         """Looks up a monster.
@@ -395,6 +371,76 @@ class Lookup(commands.Cog):
                 await ctx.author.send(embed=embed)
             else:
                 await ctx.send(embed=embed)
+
+    @commands.command()
+    async def monimage(self, ctx, *, name):
+        """Shows a monster's image."""
+        choices = await get_monster_choices(ctx, filter_by_license=False)
+        monster = await self._lookup_search3(ctx, {'monster': choices}, name)
+        await Stats.increase_stat(ctx, "monsters_looked_up_life")
+
+        url = monster.get_image_url()
+        embed = EmbedWithAuthor(ctx)
+        embed.title = monster.name
+        embed.description = f"{monster.size} monster."
+
+        if not url:
+            return await ctx.channel.send("This monster has no image.")
+
+        embed.set_image(url=url)
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    async def token(self, ctx, name=None, *args):
+        """
+        Shows a monster or your character's token.
+        __Valid Arguments__
+        -border <plain|none (player token only)> - Overrides the token border.
+        """
+        if name is None or name.startswith('-'):
+            token_cmd = self.bot.get_command('playertoken')
+            if token_cmd is None:
+                return await ctx.send("Error: SheetManager cog not loaded.")
+            if name:
+                args = (name, *args)
+            return await ctx.invoke(token_cmd, *args)
+
+        # select monster
+        choices = await get_monster_choices(ctx, filter_by_license=False)
+        monster = await self._lookup_search3(ctx, {'monster': choices}, name)
+        await Stats.increase_stat(ctx, "monsters_looked_up_life")
+
+        # select border
+        ddb_user = await self.bot.ddb.get_ddb_user(ctx, ctx.author.id)
+        is_subscriber = ddb_user and ddb_user.is_subscriber
+        token_args = argparse(args)
+
+        if monster.homebrew:
+            # homebrew: generate token
+            if not monster.get_image_url():
+                return await ctx.send("This monster has no image.")
+            try:
+                image = await img.generate_token(monster.get_image_url(), is_subscriber, token_args)
+            except Exception as e:
+                return await ctx.send(f"Error generating token: {e}")
+        else:
+            # official monsters
+            token_url = monster.get_token_url(is_subscriber)
+            if token_args.last('border') == 'plain':
+                token_url = monster.get_token_url(False)
+
+            if not token_url:
+                return await ctx.send("This monster has no image.")
+
+            image = await img.fetch_monster_image(token_url)
+
+        embed = EmbedWithAuthor(ctx)
+        embed.title = monster.name
+        embed.description = f"{monster.size} monster."
+
+        file = discord.File(image, filename="image.png")
+        embed.set_image(url="attachment://image.png")
+        await ctx.send(embed=embed, file=file)
 
     # ==== spells ====
     @commands.command()
@@ -574,19 +620,12 @@ class Lookup(commands.Cog):
         # get licensed objects, mapped by entity type
         available_ids = {k: await self.bot.ddb.get_accessible_entities(ctx, ctx.author.id, k) for k in entities}
 
-        # helper
-        def can_access(e):
-            the_entity, the_etype = e
-            return the_entity.is_free \
-                   or available_ids[the_etype] is not None and the_entity.entity_id in available_ids[the_etype] \
-                   or the_entity.homebrew
-
         # the selection display key
         def selectkey(e):
-            the_entity, _ = e
+            the_entity, the_etype = e
             if the_entity.homebrew:
                 return f"{the_entity.name} ({HOMEBREW_EMOJI})"
-            elif can_access(e):
+            elif can_access(the_entity, available_ids[the_etype]):
                 return the_entity.name
             return f"{the_entity.name}\\*"
 
@@ -605,10 +644,10 @@ class Lookup(commands.Cog):
 
         # log the query
         await self._add_training_data(query_type, query, entity.name, metadata=metadata, srd=entity.is_free,
-                                      could_view=can_access(result))
+                                      could_view=can_access(entity, available_ids[entity_type]))
 
         # display error if not srd
-        if not can_access(result):
+        if not can_access(entity, available_ids[entity_type]):
             raise errors.RequiresLicense(entity, available_ids[entity_type] is not None)
         return entity
 

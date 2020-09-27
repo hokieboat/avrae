@@ -9,8 +9,8 @@ from d20 import roll
 from discord.ext import commands
 from discord.ext.commands import NoPrivateMessage
 
+from aliasing import helpers
 from cogs5e.funcs import attackutils, checkutils, targetutils
-from cogs5e.funcs.scripting import helpers
 from cogs5e.models.character import Character
 from cogs5e.models.embeds import EmbedWithAuthor, EmbedWithCharacter
 from cogs5e.models.errors import InvalidArgument, NoSelectionElements, SelectionException
@@ -98,7 +98,7 @@ class InitTracker(commands.Cog):
         Generic combatants have a 10 in every stat and +0 to every modifier.
         If a character is set up with the SheetManager module, you can use !init join instead.
         If you are adding monsters to combat, you can use !init madd instead.
-        
+
         __Valid Arguments__
         -h - Hides HP, AC, resistances, and attack list.
         -p - Places combatant at the given modifier, instead of rolling
@@ -111,6 +111,7 @@ class InitTracker(commands.Cog):
         -immune <damage type> - Gives the combatant immunity to the given damage type.
         -vuln <damage type> - Gives the combatant vulnerability to the given damage type.
         adv/dis - Rolls the initiative check with advantage/disadvantage.
+        -note <note> - Sets the combatant's note.
         """
         private = False
         place = None
@@ -127,7 +128,7 @@ class InitTracker(commands.Cog):
         if args.last('h', type_=bool):
             private = True
 
-        if 'p' in args:
+        if args.get('p'):
             try:
                 place_arg = args.last('p')
                 if place_arg is True:
@@ -150,6 +151,8 @@ class InitTracker(commands.Cog):
         if args.last('ac'):
             ac = args.last('ac', type_=int)
 
+        note = args.last('note')
+
         for k in ('resist', 'immune', 'vuln'):
             resists[k] = args.get(k)
 
@@ -159,7 +162,7 @@ class InitTracker(commands.Cog):
             await ctx.send("Combatant already exists.")
             return
 
-        if not place:
+        if place is None:
             init_skill = Skill(modifier, adv=adv)
             init_roll = roll(init_skill.d20())
             init = init_roll.total
@@ -175,6 +178,10 @@ class InitTracker(commands.Cog):
         # -thp (#1142)
         if thp and thp > 0:
             me.temp_hp = thp
+
+        # -note (#1211)
+        if note:
+            me.notes = note
 
         if group is None:
             combat.add_combatant(me)
@@ -200,7 +207,9 @@ class InitTracker(commands.Cog):
         -rollhp - Rolls the monsters HP, instead of using the default value.
         -hp <hp> - Sets starting HP.
         -thp <thp> - Sets starting THP.
-        -ac <ac> - Sets the combatant's starting AC."""
+        -ac <ac> - Sets the combatant's starting AC.
+        -note <note> - Sets the combatant's note.
+        """
 
         monster = await select_monster_full(ctx, monster_name, pm=True)
 
@@ -216,6 +225,7 @@ class InitTracker(commands.Cog):
         thp = args.last('thp', type_=int)
         ac = args.last('ac', type_=int)
         n = args.last('n', 1, int)
+        note = args.last('note')
         name_template = args.last('name', monster.name[:2].upper() + '#')
         init_skill = monster.skills.initiative
 
@@ -269,6 +279,10 @@ class InitTracker(commands.Cog):
                 if thp and thp > 0:
                     me.temp_hp = thp
 
+                # -note (#1211)
+                if note:
+                    me.notes = note
+
                 if group is None:
                     combat.add_combatant(me)
                     out += f"{name} was added to combat with initiative {check_roll.result if p is None else p}.\n"
@@ -290,7 +304,7 @@ class InitTracker(commands.Cog):
     async def join(self, ctx, *, args: str = ''):
         """
         Adds the current active character to combat. A character must be loaded through the SheetManager module first.
-        __Valid Arguments__ 
+        __Valid Arguments__
         adv/dis - Give advantage or disadvantage to the initiative roll.
         -b <condition bonus> - Adds a bonus to the combatants' Initiative roll.
         -phrase <phrase> - Adds flavor text.
@@ -298,17 +312,19 @@ class InitTracker(commands.Cog):
         -p <value> - Places combatant at the given value, instead of rolling.
         -h - Hides HP, AC, Resists, etc.
         -group <group> - Adds the combatant to a group.
+        -note <note> - Sets the combatant's note.
         [user snippet]
         """
         char: Character = await Character.from_ctx(ctx)
         args = await helpers.parse_snippets(args, ctx)
-        args = await char.parse_cvars(args, ctx)
+        args = await helpers.parse_with_character(ctx, char, args)
         args = argparse(args)
 
         embed = EmbedWithCharacter(char, False)
 
         p = args.last('p', type_=int)
         group = args.last('group')
+        note = args.last('note')
 
         if p is None:
             args.ignore('rr')
@@ -331,6 +347,10 @@ class InitTracker(commands.Cog):
             return
 
         me = await PlayerCombatant.from_character(char, ctx, combat, controller, init, private)
+
+        # -note (#1211)
+        if note:
+            me.notes = note
 
         if group is None:
             combat.add_combatant(me)
@@ -489,7 +509,7 @@ class InitTracker(commands.Cog):
 
     @init.command(name="meta", aliases=['metaset'])
     async def metasetting(self, ctx, *settings):
-        """Changes the settings of the active combat. 
+        """Changes the settings of the active combat.
         __Valid Settings__
         dyn - Dynamic initiative; Rerolls all initiatves at the start of a round.
         turnnotif - Notifies the controller of the next combatant in initiative.
@@ -722,17 +742,24 @@ class InitTracker(commands.Cog):
             await ctx.send("No valid options found.")
 
     @init.command()
-    async def status(self, ctx, name: str, *, args: str = ''):
+    async def status(self, ctx, name: str = '', *, args: str = ''):
         """Gets the status of a combatant or group.
+        If no name is specified, it will default to current combatant.
         __Valid Arguments__
         private - PMs the controller of the combatant a more detailed status."""
+
         combat = await Combat.from_ctx(ctx)
-        combatant = await combat.select_combatant(name, select_group=True)
+
+        if name == 'private' or name == '':
+            combatant = combat.current_combatant
+        else:
+            combatant = await combat.select_combatant(name, select_group=True)
+
         if combatant is None:
             await ctx.send("Combatant or group not found.")
             return
 
-        private = 'private' in args.lower()
+        private = 'private' in args.lower() or name == 'private'
         if not isinstance(combatant, CombatantGroup):
             private = private and str(ctx.author.id) == combatant.controller
             status = combatant.get_status(private=private)
@@ -1005,7 +1032,7 @@ class InitTracker(commands.Cog):
         -f "Field Title|Field Text" - Creates a field with the given title and text.
         -thumb <url> - Adds a thumbnail to the attack.
         [user snippet] - Allows the user to use snippets on the attack.
-        
+
         -custom - Makes a custom attack with 0 to hit and base damage. Use `-b` and `-d` to add to hit and damage.
 
         An italicized argument means the argument supports ephemeral arguments - e.g. `-d1` applies damage to the first hit, `-b1` applies a bonus to one attack, and so on."""
@@ -1092,9 +1119,9 @@ class InitTracker(commands.Cog):
         # argument parsing
         is_player = isinstance(combatant, PlayerCombatant)
         if is_player and combatant.character_owner == str(ctx.author.id):
-            args = await combatant.character.parse_cvars(args, ctx)
+            args = await helpers.parse_with_character(ctx, combatant.character, args)
         else:
-            args = await helpers.parse_no_char(args, ctx)
+            args = await helpers.parse_with_statblock(ctx, combatant, args)
         args = argparse(args)
 
         # handle old targeting method
@@ -1237,9 +1264,9 @@ class InitTracker(commands.Cog):
         is_character = isinstance(combatant, PlayerCombatant)
 
         if is_character and combatant.character_owner == str(ctx.author.id):
-            args = await combatant.character.parse_cvars(args, ctx)
+            args = await helpers.parse_with_character(ctx, combatant.character, args)
         else:
-            args = await helpers.parse_no_char(args, ctx)
+            args = await helpers.parse_with_statblock(ctx, combatant, args)
         args = argparse(args)
 
         if not args.last('i', type_=bool):

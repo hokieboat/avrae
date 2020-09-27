@@ -12,8 +12,8 @@ import d20
 import discord
 from discord.ext import commands
 
+from aliasing import helpers
 from cogs5e.funcs import targetutils
-from cogs5e.funcs.scripting import helpers
 from cogs5e.models.character import Character, CustomCounter
 from cogs5e.models.embeds import EmbedWithCharacter
 from cogs5e.models.errors import ConsumableException, CounterOutOfBounds, InvalidArgument, NoSelectionElements
@@ -45,6 +45,8 @@ class GameTrack(commands.Cog):
         embed = EmbedWithCharacter(character)
         embed.add_field(name="Hit Points", value=character.hp_str())
         embed.add_field(name="Spell Slots", value=character.spellbook.slots_str())
+        if character.death_saves.successes != 0 or character.death_saves.fails != 0:
+            embed.add_field(name="Death Saves", value=str(character.death_saves))
         for counter in character.consumables:
             embed.add_field(name=counter.name, value=counter.full_str())
         await ctx.send(embed=embed)
@@ -448,6 +450,8 @@ class GameTrack(commands.Cog):
             operator = m[0]
             modifier = m[-1]
 
+        change = ''
+        old_value = counter.value
         try:
             modifier = int(modifier)
         except ValueError:
@@ -463,10 +467,11 @@ class GameTrack(commands.Cog):
         counter.set(new_value)
         await character.commit(ctx)
 
-        if new_value - counter.value:
-            out = f"{str(counter)}\n({abs(new_value - counter.value)} overflow)"
+        delta = f"({counter.value - old_value:+})"
+        if new_value - counter.value:  # we overflowed somewhere
+          out = f"{str(counter)} {delta}\n({abs(new_value - counter.value)} overflow)"
         else:
-            out = str(counter)
+          out = f"{str(counter)} {delta}"
 
         result_embed.add_field(name=counter.name, value=out)
 
@@ -584,7 +589,7 @@ class GameTrack(commands.Cog):
         char: Character = await Character.from_ctx(ctx)
 
         args = await helpers.parse_snippets(args, ctx)
-        args = await char.parse_cvars(args, ctx)
+        args = await helpers.parse_with_character(ctx, char, args)
         args = argparse(args)
 
         if not args.last('i', type_=bool):
