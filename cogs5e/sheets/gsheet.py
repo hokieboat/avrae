@@ -1,7 +1,7 @@
 """
-Created on May 8, 2017
+Created on May 8, 2017; Edited on October 11, 2020
 
-@author: andrew
+@author: harry, andrew
 """
 
 import asyncio
@@ -44,15 +44,15 @@ BASE_ABILITY_CHECKS = (  # list of (MOD_CELL/ROW, SKILL_NAME, ADV_CELL)
     ('C33', 'wisdom', None), ('C28', 'intelligence', None), ('C38', 'charisma', None)
 )
 SKILL_CELL_MAP = (  # list of (MOD_CELL/ROW, SKILL_NAME, ADV_CELL)
-    (25, 'acrobatics', None), (26, 'animalHandling', None), (27, 'arcana', None),
-    (28, 'athletics', None), (22, 'charismaSave', None), (19, 'constitutionSave', None),
-    (29, 'deception', None), (18, 'dexteritySave', None), (30, 'history', None),
-    ('V12', 'initiative', 'V11'), (31, 'insight', None), (20, 'intelligenceSave', None),
-    (32, 'intimidation', None), (33, 'investigation', None), (34, 'medicine', None),
-    (35, 'nature', None), (36, 'perception', None), (37, 'performance', None),
-    (38, 'persuasion', None), (39, 'religion', None), (40, 'sleightOfHand', None),
-    (41, 'stealth', None), (17, 'strengthSave', None), (42, 'survival', None),
-    (21, 'wisdomSave', None)
+    ('N22', 'acrobatics', None), ('N23', 'animalHandling', None), ('N24', 'arcana', None),
+    ('N25', 'athletics', None), ('I19', 'charismaSave', None), ('I16', 'constitutionSave', None),
+    ('N26', 'deception', None), ('I15', 'dexteritySave', None), ('N27', 'history', None),
+    ('BK3', 'initiative', 'BM4'), ('N28', 'insight', None), ('I17', 'intelligenceSave', None),
+    ('N29', 'intimidation', None), ('N30', 'investigation', None), ('N31', 'medicine', None),
+    ('N32', 'nature', None), ('N33', 'perception', None), ('N34', 'performance', None),
+    ('N35', 'persuasion', None), ('N36', 'religion', None), ('N37', 'sleightOfHand', None),
+    ('N38', 'stealth', None), ('I14', 'strengthSave', None), ('N39', 'survival', None),
+    ('I18', 'wisdomSave', None)
 )
 RESIST_COLS = (('resist', 'T'),  # T69:T79, 1.4/2.x
                ('immune', 'AE'),  # AE69:AE79, 1.4/2.0
@@ -212,7 +212,7 @@ class GoogleSheet(SheetLoaderABC):
     def _gchar(self):
         doc = GoogleSheet.g_client.open_by_key(self.url)
         self.character_data = TempCharacter(doc.sheet1)
-        vcell = self.character_data.value("AQ4")
+        vcell = self.character_data.value("BI2")
         if '1.3' in vcell:
             self.version = (1, 3)
         elif vcell:
@@ -243,7 +243,7 @@ class GoogleSheet(SheetLoaderABC):
         import_version = SHEET_VERSION
         name = self.character_data.value("C6").strip() or "Unnamed"
         description = self.get_description()
-        image = self.character_data.value("C176").strip()
+        image = self.character_data.value("AU13").strip()
 
         stats = self.get_stats()
         levels = self.get_levels()
@@ -287,7 +287,7 @@ class GoogleSheet(SheetLoaderABC):
     def get_description(self):
         if self.character_data is None: raise Exception('You must call get_character() first.')
         character = self.character_data
-        g = character.value("C150").lower()
+        g = character.value("AU8").lower()
         n = character.value("C6")
         pronoun = "She" if g == "female" else "He" if g == "male" else "They"
         verb1 = "is" if pronoun != "They" else "are"
@@ -295,16 +295,16 @@ class GoogleSheet(SheetLoaderABC):
         desc = "{0} is a level {1} {2} {3}. {4} {11} {5} years old, {6} tall, and appears to weigh about {7}." \
                "{4} {12} {8} eyes, {9} hair, and {10} skin."
         desc = desc.format(n,
-                           character.value("AL6"),
-                           character.value("T7"),
-                           character.value("T5"),
+                           character.value("AQ6"),
+                           character.value("T8"),
+                           character.value("T6"),
                            pronoun,
-                           character.value("C148") or "unknown",
-                           character.value("F148") or "unknown",
-                           character.value("I148") or "unknown",
-                           character.value("F150").lower() or "unknown",
-                           character.value("I150").lower() or "unknown",
-                           character.value("L150").lower() or "unknown",
+                           character.value("AU6") or "unknown",
+                           character.value("AX6") or "unknown",
+                           character.value("BA6") or "unknown",
+                           character.value("AX8").lower() or "unknown",
+                           character.value("BA8").lower() or "unknown",
+                           character.value("BD8").lower() or "unknown",
                            verb1, verb2)
         return desc
 
@@ -316,7 +316,7 @@ class GoogleSheet(SheetLoaderABC):
             return self._stats
 
         try:
-            prof_bonus = int(character.value("H14"))
+            prof_bonus = int(character.value("H11"))
         except (TypeError, ValueError):
             raise MissingAttribute("Proficiency Bonus")
 
@@ -336,7 +336,7 @@ class GoogleSheet(SheetLoaderABC):
     def get_levels(self):
         if self.character_data is None: raise Exception('You must call get_character() first.')
         try:
-            total_level = int(self.character_data.value("AL6"))
+            total_level = int(self.character_data.value("AQ6"))
             self.total_level = total_level
         except ValueError:
             raise MissingAttribute("Character level")
@@ -360,7 +360,7 @@ class GoogleSheet(SheetLoaderABC):
         """Returns an attack list."""
         if self.character_data is None: raise Exception('You must call get_character() first.')
         attacks = AttackList()
-        for rownum in range(32, 37):  # sht1, R32:R36
+        for rownum in range(29, 34):  # sht1, R32:R36
             a = self.parse_attack(f"R{rownum}", f"Y{rownum}", f"AC{rownum}")
             if a is not None:
                 attacks.append(a)
@@ -386,8 +386,8 @@ class GoogleSheet(SheetLoaderABC):
             is_joat = bool(character.value("AR45"))
             all_check_bonus = int(character.value("AQ26") or 0)
         elif self.version == (2, 1):
-            is_joat = bool(character.value("AQ59"))
-            all_check_bonus = int(character.value("AR58"))
+            is_joat = bool(character.value("BI66"))
+            all_check_bonus = int(character.value("BJ65"))
 
         joat_bonus = int(is_joat and self.get_stats().prof_bonus // 2)
 
@@ -411,7 +411,7 @@ class GoogleSheet(SheetLoaderABC):
             if isinstance(cell, int):
                 advcell = f"F{cell}"
                 profcell = f"H{cell}"
-                cell = f"I{cell}"
+                cell = f"N{cell}"
             else:
                 profcell = None
             try:
@@ -471,35 +471,35 @@ class GoogleSheet(SheetLoaderABC):
 
     def get_hp(self):
         try:
-            return int(self.character_data.value("U16"))
+            return int(self.character_data.value("AH12"))
         except (TypeError, ValueError):
             raise MissingAttribute("Max HP")
 
     def get_race(self):
-        return self.character_data.value('T7').strip()
+        return self.character_data.value('T8').strip()
 
     def get_background(self):
         if self.version >= (2, 0):
-            return self.character_data.value('AJ11').strip()
+            return self.character_data.value('AE8').strip()
         return self.character_data.value('Z5').strip()
 
     def get_spellbook(self):
         if self.character_data is None: raise Exception('You must call get_character() first.')
         # max slots
         slots = {
-            '1': int(self.character_data.value("AK101") or 0),
-            '2': int(self.character_data.value("E107") or 0),
-            '3': int(self.character_data.value("AK113") or 0),
-            '4': int(self.character_data.value("E119") or 0),
-            '5': int(self.character_data.value("AK124") or 0),
-            '6': int(self.character_data.value("E129") or 0),
-            '7': int(self.character_data.value("AK134") or 0),
-            '8': int(self.character_data.value("E138") or 0),
-            '9': int(self.character_data.value("AK142") or 0)
+            '1': int(self.character_data.value("AK108") or 0),
+            '2': int(self.character_data.value("E114") or 0),
+            '3': int(self.character_data.value("AK120") or 0),
+            '4': int(self.character_data.value("E126") or 0),
+            '5': int(self.character_data.value("AK131") or 0),
+            '6': int(self.character_data.value("E136") or 0),
+            '7': int(self.character_data.value("AK141") or 0),
+            '8': int(self.character_data.value("E145") or 0),
+            '9': int(self.character_data.value("AK149") or 0)
         }
 
         # spells C96:AH143
-        potential_spells = self.character_data.value_range("D96:AH143")
+        potential_spells = self.character_data.value_range("D103:AH150")
         if self.additional:
             potential_spells.extend(self.additional.value_range("D17:AH64"))
 
@@ -516,18 +516,18 @@ class GoogleSheet(SheetLoaderABC):
 
         # dc
         try:
-            dc = int(self.character_data.value("AB91") or 0)
+            dc = int(self.character_data.value("Y18") or 0)
         except ValueError:
             dc = None
 
         # sab
         try:
-            sab = int(self.character_data.value("AI91") or 0)
+            sab = int(self.character_data.value("AD18") or 0)
         except ValueError:
             sab = None
 
         # spellcasting mod
-        spell_mod_value = self.character_data.value("U91")
+        spell_mod_value = self.character_data.value("R18")
         spell_mod = None
         if spell_mod_value:  # it might be in the form of a ability name, or an int, wjdk
             try:
